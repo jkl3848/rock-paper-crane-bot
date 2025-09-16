@@ -7,7 +7,12 @@
     "start": "node bot.js",
     "dev": "node --watch bot.js"
   },
-  "keywords": ["discord", "bot", "rock-paper-scissors", "game"],
+  "keywords": [
+    "discord",
+    "bot",
+    "rock-paper-scissors",
+    "game"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {

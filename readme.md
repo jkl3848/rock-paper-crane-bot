@@ -75,7 +75,7 @@ npm run dev
 ## Game Rules
 
 - 🪨 Rock beats ✂️ Scissors
-- 📄 Paper beats 🪨 Rock  
+- 📄 Paper beats 🪨 Rock
 - ✂️ Scissors beats 📄 Paper
 - Same choices result in a tie
 
