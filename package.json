@@ -1,0 +1,17 @@
+{
+  "name": "rock-paper-crane-bot",
+  "version": "1.0.0",
+  "description": "A Discord bot for playing rock paper scissors between two users",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --watch bot.js"
+  },
+  "keywords": ["discord", "bot", "rock-paper-scissors", "game"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1"
+  }
+}
