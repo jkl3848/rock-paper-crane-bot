@@ -390,13 +390,13 @@ async function handleSlashCommand(interaction) {
     const challengeEmbed = new EmbedBuilder()
       .setTitle("🎮 Rock Paper Crane Challenge!")
       .setDescription(
-        `${challenger} has challenged ${challenged} to a multi-round game of Rock Paper Crane!`
+        `${challenger} has challenged ${challenged} to a game of Rock Paper Crane!`
       )
       .setColor("#FF6B6B")
       .addFields({
         name: "How to play:",
         value:
-          "• Click Accept to join the multi-round game\n• Each round: choose Rock, Paper, Scissors, or Bomb\n• **Round winner upgrades an item:** Rock→Wall, Bomb→Cannon, Scissors→Fire, Paper→Clay\n• **Upgraded items have new powers!**\n• **First to upgrade all 4 items wins the game!**",
+          "• Click Accept to join the game\n• Each round: choose Rock, Paper, Scissors, or Bomb\n• **Round winner upgrades an item:** Rock→Wall, Bomb→Cannon, Scissors→Fire, Paper→Clay\n• **Upgraded items have new powers!**\n• **First to upgrade all 4 items wins the game!**",
       })
       .addFields({
         name: "Basic Rules:",

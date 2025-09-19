@@ -92,6 +92,7 @@ npm run dev
 - Cannot challenge bots or yourself
 - Only one active game per player pair at a time
 - Challenges expire after 60 seconds if not accepted
+- Permissions: 2147567616
 
 ## Technical Details
 
