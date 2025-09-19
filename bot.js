@@ -174,6 +174,58 @@ class RPCGame {
     return `${count}/4 upgrades (${upgradesList.join(", ")})`;
   }
 
+  // Get available downgrades for a player
+  getAvailableDowngrades(userId) {
+    const upgrades =
+      userId === this.challenger.id
+        ? this.challengerUpgrades
+        : this.challengedUpgrades;
+    return Object.keys(upgrades).filter((item) => upgrades[item]);
+  }
+
+  // Perform a downgrade
+  makeDowngrade(userId, item) {
+    if (userId === this.challenger.id) {
+      this.challengerUpgrades[item] = false;
+    } else if (userId === this.challenged.id) {
+      this.challengedUpgrades[item] = false;
+    }
+  }
+
+  // Check for special rule conditions (bomb loses to fire)
+  checkSpecialRules() {
+    const challengerActual = this.getActualChoice(
+      this.challenger.id,
+      this.challengerChoice
+    );
+    const challengedActual = this.getActualChoice(
+      this.challenged.id,
+      this.challengedChoice
+    );
+
+    // Special Rule: If bomb loses to fire, loser must downgrade
+    if (
+      (this.challengerChoice === "bomb" && challengedActual === "fire") ||
+      (this.challengedChoice === "bomb" && challengerActual === "fire")
+    ) {
+      const bombUserId =
+        this.challengerChoice === "bomb"
+          ? this.challenger.id
+          : this.challenged.id;
+      const availableDowngrades = this.getAvailableDowngrades(bombUserId);
+
+      if (availableDowngrades.length > 0) {
+        return {
+          type: "bomb_fire_downgrade",
+          affectedPlayer: bombUserId,
+          availableDowngrades: availableDowngrades,
+        };
+      }
+    }
+
+    return null;
+  }
+
   getRoundWinner() {
     if (!this.bothPlayersReady()) return null;
 
@@ -212,21 +264,30 @@ class RPCGame {
 
   processRoundResult() {
     const winner = this.getRoundWinner();
+    const specialRule = this.checkSpecialRules();
 
     if (winner === "tie") {
       this.ties++;
       this.resetRound();
-      return { winner: "tie", gameComplete: false };
+      return { winner: "tie", gameComplete: false, specialRule: null };
     } else if (winner === "challenger") {
       this.challengerWins++;
       this.gamePhase = "upgrading";
       this.pendingUpgrader = this.challenger.id;
-      return { winner: "challenger", gameComplete: false };
+      return {
+        winner: "challenger",
+        gameComplete: false,
+        specialRule: specialRule,
+      };
     } else {
       this.challengedWins++;
       this.gamePhase = "upgrading";
       this.pendingUpgrader = this.challenged.id;
-      return { winner: "challenged", gameComplete: false };
+      return {
+        winner: "challenged",
+        gameComplete: false,
+        specialRule: specialRule,
+      };
     }
   }
 }
@@ -583,15 +644,30 @@ async function handleButtonInteraction(interaction) {
       let resultColor = "";
       let resultTitle = "";
 
+      // Check for special rules
+      let specialRuleText = "";
+      if (roundResult.specialRule) {
+        const affectedUser =
+          roundResult.specialRule.affectedPlayer === game.challenger.id
+            ? game.challenger
+            : game.challenged;
+        specialRuleText = `\n\n🔥💣 **Special Rule!** ${affectedUser} used Bomb against Fire and must downgrade an item!`;
+      }
+
       if (roundWinner === "tie") {
         resultTitle = `🤝 Round ${game.currentRound - 1} - It's a Tie!`;
-        resultDescription = `${resultsText}\n\nNo upgrades awarded. Starting next round...`;
+        resultDescription = `${resultsText}${specialRuleText}\n\nNo upgrades awarded. Starting next round...`;
         resultColor = "#FFA500";
       } else {
         const winnerUser =
           roundWinner === "challenger" ? game.challenger : game.challenged;
         resultTitle = `🎉 Round ${game.currentRound - 1} Winner!`;
-        resultDescription = `${resultsText}\n\n**${winnerUser}** wins the round! 🏆\n\nSelect an item to upgrade:`;
+
+        if (roundResult.specialRule) {
+          resultDescription = `${resultsText}${specialRuleText}\n\n**${winnerUser}** wins the round! 🏆`;
+        } else {
+          resultDescription = `${resultsText}\n\n**${winnerUser}** wins the round! 🏆\n\nSelect an item to upgrade:`;
+        }
         resultColor = "#00FF00";
       }
 
@@ -653,67 +729,112 @@ async function handleButtonInteraction(interaction) {
           components: [nextRoundButtons],
         });
       } else {
-        // Show upgrade buttons to the winner
-        const winnerId =
-          roundWinner === "challenger"
-            ? game.challenger.id
-            : game.challenged.id;
-        const availableUpgrades = game.getAvailableUpgrades(winnerId);
+        // Check if there's a special rule to handle first
+        if (
+          roundResult.specialRule &&
+          roundResult.specialRule.type === "bomb_fire_downgrade"
+        ) {
+          // Show downgrade buttons to the affected player
+          const affectedUser =
+            roundResult.specialRule.affectedPlayer === game.challenger.id
+              ? game.challenger
+              : game.challenged;
+          const availableDowngrades =
+            roundResult.specialRule.availableDowngrades;
 
-        if (availableUpgrades.length === 0) {
-          // Winner has all upgrades - game over!
-          const gameWinnerUser =
-            roundWinner === "challenger" ? game.challenger : game.challenged;
-          const finalEmbed = new EmbedBuilder()
-            .setTitle("🎊 GAME COMPLETE! 🎊")
-            .setDescription(
-              `**${gameWinnerUser}** has upgraded all 4 items and wins the entire game!`
-            )
-            .setColor("#FFD700");
+          resultDescription += `\n\n${affectedUser}, select an item to downgrade:`;
+          resultEmbed.setDescription(resultDescription);
 
-          const newGameButton = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(
-                `newgame_${game.challenger.id}_${game.challenged.id}`
-              )
-              .setLabel("Play Again")
-              .setStyle(ButtonStyle.Primary)
-              .setEmoji("🔄")
-          );
-
-          await interaction.editReply({
-            embeds: [finalEmbed],
-            components: [newGameButton],
-          });
-
-          // Clean up the game
-          activeGames.delete(gameId);
-        } else {
-          // Show upgrade options
-          const upgradeButtons = new ActionRowBuilder();
-
-          const upgradeMap = {
-            rock: { to: "wall", emoji: "🧱" },
-            bomb: { to: "cannon", emoji: "🔫" },
-            scissors: { to: "fire", emoji: "🔥" },
-            paper: { to: "clay", emoji: "🏺" },
+          const downgradeMap = {
+            rock: { from: "🧱 Wall", to: "🪨 Rock" },
+            bomb: { from: "🔫 Cannon", to: "💣 Bomb" },
+            scissors: { from: "🔥 Fire", to: "✂️ Scissors" },
+            paper: { from: "🏺 Clay", to: "📄 Paper" },
           };
 
-          availableUpgrades.forEach((item) => {
-            const upgrade = upgradeMap[item];
-            upgradeButtons.addComponents(
+          const downgradeButtons = new ActionRowBuilder();
+          availableDowngrades.forEach((item) => {
+            const downgrade = downgradeMap[item];
+            downgradeButtons.addComponents(
               new ButtonBuilder()
-                .setCustomId(`upgrade_${gameId}_${item}`)
-                .setLabel(`${item} → ${upgrade.to}`)
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji(upgrade.emoji)
+                .setCustomId(`downgrade_${gameId}_${item}`)
+                .setLabel(`${downgrade.from} → ${downgrade.to}`)
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji("⬇️")
             );
           });
 
+          // Set game phase to downgrading
+          game.gamePhase = "downgrading";
+          game.pendingDowngrader = roundResult.specialRule.affectedPlayer;
+
           await interaction.editReply({
             embeds: [resultEmbed],
-            components: [upgradeButtons],
+            components: [downgradeButtons],
           });
+        } else {
+          // Show upgrade buttons to the winner
+          const winnerId =
+            roundWinner === "challenger"
+              ? game.challenger.id
+              : game.challenged.id;
+          const availableUpgrades = game.getAvailableUpgrades(winnerId);
+
+          if (availableUpgrades.length === 0) {
+            // Winner has all upgrades - game over!
+            const gameWinnerUser =
+              roundWinner === "challenger" ? game.challenger : game.challenged;
+            const finalEmbed = new EmbedBuilder()
+              .setTitle("🎊 GAME COMPLETE! 🎊")
+              .setDescription(
+                `**${gameWinnerUser}** has upgraded all 4 items and wins the entire game!`
+              )
+              .setColor("#FFD700");
+
+            const newGameButton = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(
+                  `newgame_${game.challenger.id}_${game.challenged.id}`
+                )
+                .setLabel("Play Again")
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji("🔄")
+            );
+
+            await interaction.editReply({
+              embeds: [finalEmbed],
+              components: [newGameButton],
+            });
+
+            // Clean up the game
+            activeGames.delete(gameId);
+          } else {
+            // Show upgrade options
+            const upgradeButtons = new ActionRowBuilder();
+
+            const upgradeMap = {
+              rock: { to: "wall", emoji: "🧱" },
+              bomb: { to: "cannon", emoji: "🔫" },
+              scissors: { to: "fire", emoji: "🔥" },
+              paper: { to: "clay", emoji: "🏺" },
+            };
+
+            availableUpgrades.forEach((item) => {
+              const upgrade = upgradeMap[item];
+              upgradeButtons.addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`upgrade_${gameId}_${item}`)
+                  .setLabel(`${item} → ${upgrade.to}`)
+                  .setStyle(ButtonStyle.Primary)
+                  .setEmoji(upgrade.emoji)
+              );
+            });
+
+            await interaction.editReply({
+              embeds: [resultEmbed],
+              components: [upgradeButtons],
+            });
+          }
         }
       }
     } else {
@@ -873,6 +994,123 @@ async function handleButtonInteraction(interaction) {
       await interaction.editReply({
         embeds: [nextRoundEmbed],
         components: [nextRoundButtons],
+      });
+    }
+  } else if (action === "downgrade") {
+    const item = interaction.customId.split("_")[2];
+
+    // Check if user is the one who should be downgrading
+    if (interaction.user.id !== game.pendingDowngrader) {
+      await interaction.reply({
+        content: "❌ It's not your turn to downgrade!",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // Check if game is in downgrading phase
+    if (game.gamePhase !== "downgrading") {
+      await interaction.reply({
+        content: "❌ Game is not in downgrade phase!",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // Check if the item can be downgraded
+    const availableDowngrades = game.getAvailableDowngrades(
+      interaction.user.id
+    );
+    if (!availableDowngrades.includes(item)) {
+      await interaction.reply({
+        content: "❌ This item is not upgraded or invalid!",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // Make the downgrade
+    game.makeDowngrade(interaction.user.id, item);
+
+    const downgradeMap = {
+      rock: { from: "🧱 Wall", to: "🪨 Rock" },
+      bomb: { from: "🔫 Cannon", to: "💣 Bomb" },
+      scissors: { from: "🔥 Fire", to: "✂️ Scissors" },
+      paper: { from: "🏺 Clay", to: "📄 Paper" },
+    };
+
+    const downgrade = downgradeMap[item];
+    await interaction.reply({
+      content: `⬇️ You downgraded your ${downgrade.from} back to ${downgrade.to}!`,
+      ephemeral: true,
+    });
+
+    // After downgrade, now show upgrade buttons to the round winner
+    const roundWinner = game.getRoundWinner(); // We need to determine who the round winner was
+    const winnerId = game.pendingUpgrader; // This should be the round winner
+    const availableUpgrades = game.getAvailableUpgrades(winnerId);
+
+    if (availableUpgrades.length === 0) {
+      // Winner has all upgrades - game over!
+      const gameWinnerUser =
+        winnerId === game.challenger.id ? game.challenger : game.challenged;
+      const finalEmbed = new EmbedBuilder()
+        .setTitle("🎊 GAME COMPLETE! 🎊")
+        .setDescription(
+          `**${gameWinnerUser}** has upgraded all 4 items and wins the entire game!`
+        )
+        .setColor("#FFD700");
+
+      const newGameButton = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`newgame_${game.challenger.id}_${game.challenged.id}`)
+          .setLabel("Play Again")
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji("🔄")
+      );
+
+      await interaction.editReply({
+        embeds: [finalEmbed],
+        components: [newGameButton],
+      });
+
+      // Clean up the game
+      activeGames.delete(gameId);
+    } else {
+      // Show upgrade options to the round winner
+      const winnerUser =
+        winnerId === game.challenger.id ? game.challenger : game.challenged;
+      const upgradeEmbed = new EmbedBuilder()
+        .setTitle("🎉 Now Select Your Upgrade!")
+        .setDescription(`${winnerUser}, select an item to upgrade:`)
+        .setColor("#00FF00");
+
+      const upgradeMap = {
+        rock: { to: "wall", emoji: "🧱" },
+        bomb: { to: "cannon", emoji: "🔫" },
+        scissors: { to: "fire", emoji: "🔥" },
+        paper: { to: "clay", emoji: "🏺" },
+      };
+
+      const upgradeButtons = new ActionRowBuilder();
+      availableUpgrades.forEach((item) => {
+        const upgrade = upgradeMap[item];
+        upgradeButtons.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`upgrade_${gameId}_${item}`)
+            .setLabel(`${item} → ${upgrade.to}`)
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji(upgrade.emoji)
+        );
+      });
+
+      // Reset to upgrading phase
+      game.gamePhase = "upgrading";
+      delete game.pendingDowngrader;
+
+      await interaction.editReply({
+        embeds: [upgradeEmbed],
+        components: [upgradeButtons],
       });
     }
   } else if (action === "newgame") {
