@@ -23,15 +23,39 @@ const client = new Client({
 // Store active games
 const activeGames = new Map();
 
-// Game class to manage individual rock paper scissors games
-class RPSGame {
+// Game class to manage individual rock paper crane games with multiple rounds
+class RPCGame {
   constructor(challenger, challenged, channelId) {
     this.challenger = challenger;
     this.challenged = challenged;
     this.channelId = channelId;
+    this.gameId = `${challenger.id}-${challenged.id}-${Date.now()}`;
+
+    // Round management
+    this.currentRound = 1;
     this.challengerChoice = null;
     this.challengedChoice = null;
-    this.gameId = `${challenger.id}-${challenged.id}-${Date.now()}`;
+    this.gamePhase = "playing"; // 'playing', 'upgrading', 'completed'
+    this.pendingUpgrader = null; // who needs to select an upgrade
+
+    // Player upgrades - track which items have been upgraded
+    this.challengerUpgrades = {
+      rock: false,
+      paper: false,
+      scissors: false,
+      bomb: false,
+    };
+    this.challengedUpgrades = {
+      rock: false,
+      paper: false,
+      scissors: false,
+      bomb: false,
+    };
+
+    // Round wins tracking
+    this.challengerWins = 0;
+    this.challengedWins = 0;
+    this.ties = 0;
   }
 
   makeChoice(userId, choice) {
@@ -46,31 +70,172 @@ class RPSGame {
     return this.challengerChoice && this.challengedChoice;
   }
 
-  getWinner() {
-    if (!this.bothPlayersReady()) return null;
+  resetRound() {
+    this.challengerChoice = null;
+    this.challengedChoice = null;
+    this.currentRound++;
+    this.gamePhase = "playing";
+    this.pendingUpgrader = null;
+  }
 
-    const challenger = this.challengerChoice;
-    const challenged = this.challengedChoice;
+  makeUpgrade(userId, item) {
+    if (userId === this.challenger.id) {
+      this.challengerUpgrades[item] = true;
+    } else if (userId === this.challenged.id) {
+      this.challengedUpgrades[item] = true;
+    }
 
-    if (challenger === challenged) return "tie";
+    // Check for game completion
+    if (this.hasAllUpgrades(userId)) {
+      this.gamePhase = "completed";
+    } else {
+      this.resetRound();
+    }
+  }
 
-    const winConditions = {
-      rock: "scissors",
-      paper: "rock",
-      scissors: "paper",
+  hasAllUpgrades(userId) {
+    const upgrades =
+      userId === this.challenger.id
+        ? this.challengerUpgrades
+        : this.challengedUpgrades;
+    return Object.values(upgrades).every((upgraded) => upgraded);
+  }
+
+  getAvailableUpgrades(userId) {
+    const upgrades =
+      userId === this.challenger.id
+        ? this.challengerUpgrades
+        : this.challengedUpgrades;
+    return Object.keys(upgrades).filter((item) => !upgrades[item]);
+  }
+
+  getUpgradeCount(userId) {
+    const upgrades =
+      userId === this.challenger.id
+        ? this.challengerUpgrades
+        : this.challengedUpgrades;
+    return Object.values(upgrades).filter((upgraded) => upgraded).length;
+  }
+
+  // Get the actual choice (basic or upgraded) for a player
+  getActualChoice(userId, baseChoice) {
+    const upgrades =
+      userId === this.challenger.id
+        ? this.challengerUpgrades
+        : this.challengedUpgrades;
+
+    if (upgrades[baseChoice]) {
+      // Return upgraded version
+      const upgradeMap = {
+        rock: "wall",
+        bomb: "cannon",
+        scissors: "fire",
+        paper: "clay",
+      };
+      return upgradeMap[baseChoice];
+    }
+    return baseChoice;
+  }
+
+  // Get display info for choices (emoji and name)
+  getChoiceDisplay(choice) {
+    const choiceInfo = {
+      rock: { emoji: "🪨", name: "Rock" },
+      paper: { emoji: "📄", name: "Paper" },
+      scissors: { emoji: "✂️", name: "Scissors" },
+      bomb: { emoji: "💣", name: "Bomb" },
+      wall: { emoji: "🧱", name: "Wall" },
+      cannon: { emoji: "🔫", name: "Cannon" },
+      fire: { emoji: "🔥", name: "Fire" },
+      clay: { emoji: "🏺", name: "Clay" },
+    };
+    return choiceInfo[choice] || { emoji: "❓", name: choice };
+  }
+
+  // Get detailed upgrade status for display
+  getUpgradeStatus(userId) {
+    const upgrades =
+      userId === this.challenger.id
+        ? this.challengerUpgrades
+        : this.challengedUpgrades;
+    const upgradeMap = {
+      rock: "🧱Wall",
+      bomb: "🔫Cannon",
+      scissors: "🔥Fire",
+      paper: "🏺Clay",
     };
 
-    return winConditions[challenger] === challenged
+    const upgradesList = Object.keys(upgrades)
+      .filter((item) => upgrades[item])
+      .map((item) => upgradeMap[item]);
+
+    const count = upgradesList.length;
+    if (count === 0) return `${count}/4 upgrades`;
+    return `${count}/4 upgrades (${upgradesList.join(", ")})`;
+  }
+
+  getRoundWinner() {
+    if (!this.bothPlayersReady()) return null;
+
+    // Get actual choices (basic or upgraded)
+    const challengerActual = this.getActualChoice(
+      this.challenger.id,
+      this.challengerChoice
+    );
+    const challengedActual = this.getActualChoice(
+      this.challenged.id,
+      this.challengedChoice
+    );
+
+    if (challengerActual === challengedActual) return "tie";
+
+    // Complete win conditions including upgrades:
+    // Basic: Rock beats scissors | Paper beats rock | Scissors beats paper and bomb | Bomb beats rock and paper
+    // Upgrades: Wall beats scissors, bomb and fire | Cannon beats rock, paper, wall and clay | Fire beats paper, scissors and bomb | Clay beats rock, wall and fire
+    const winConditions = {
+      // Basic items
+      rock: ["scissors"],
+      paper: ["rock"],
+      scissors: ["paper", "bomb"],
+      bomb: ["rock", "paper"],
+      // Upgraded items
+      wall: ["scissors", "bomb", "fire"],
+      cannon: ["rock", "paper", "wall", "clay"],
+      fire: ["paper", "scissors", "bomb"],
+      clay: ["rock", "wall", "fire"],
+    };
+
+    return winConditions[challengerActual].includes(challengedActual)
       ? "challenger"
       : "challenged";
+  }
+
+  processRoundResult() {
+    const winner = this.getRoundWinner();
+
+    if (winner === "tie") {
+      this.ties++;
+      this.resetRound();
+      return { winner: "tie", gameComplete: false };
+    } else if (winner === "challenger") {
+      this.challengerWins++;
+      this.gamePhase = "upgrading";
+      this.pendingUpgrader = this.challenger.id;
+      return { winner: "challenger", gameComplete: false };
+    } else {
+      this.challengedWins++;
+      this.gamePhase = "upgrading";
+      this.pendingUpgrader = this.challenged.id;
+      return { winner: "challenged", gameComplete: false };
+    }
   }
 }
 
 // Slash command definition
 const commands = [
   new SlashCommandBuilder()
-    .setName("rps")
-    .setDescription("Challenge someone to rock paper scissors")
+    .setName("rpc")
+    .setDescription("Challenge someone to rock paper crane")
     .addUserOption((option) =>
       option
         .setName("opponent")
@@ -107,7 +272,7 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 async function handleSlashCommand(interaction) {
-  if (interaction.commandName === "rps") {
+  if (interaction.commandName === "rpc") {
     const challenger = interaction.user;
     const challenged = interaction.options.getUser("opponent");
     const channel = interaction.channel;
@@ -157,20 +322,32 @@ async function handleSlashCommand(interaction) {
     }
 
     // Create new game
-    const game = new RPSGame(challenger, challenged, channel.id);
+    const game = new RPCGame(challenger, challenged, channel.id);
     activeGames.set(game.gameId, game);
 
     // Create challenge embed and buttons
     const challengeEmbed = new EmbedBuilder()
-      .setTitle("🎮 Rock Paper Scissors Challenge!")
+      .setTitle("🎮 Rock Paper Crane Challenge!")
       .setDescription(
-        `${challenger} has challenged ${challenged} to a game of Rock Paper Scissors!`
+        `${challenger} has challenged ${challenged} to a multi-round game of Rock Paper Crane!`
       )
       .setColor("#FF6B6B")
       .addFields({
         name: "How to play:",
         value:
-          "• Click Accept to join the game\n• Click Decline to reject the challenge\n• Both players must make their choice\n• Choices are revealed simultaneously!",
+          "• Click Accept to join the multi-round game\n• Each round: choose Rock, Paper, Scissors, or Bomb\n• **Round winner upgrades an item:** Rock→Wall, Bomb→Cannon, Scissors→Fire, Paper→Clay\n• **Upgraded items have new powers!**\n• **First to upgrade all 4 items wins the game!**",
+      })
+      .addFields({
+        name: "Basic Rules:",
+        value:
+          "Rock beats Scissors | Paper beats Rock | Scissors beats Paper & Bomb | Bomb beats Rock & Paper",
+        inline: false,
+      })
+      .addFields({
+        name: "Upgrade Powers:",
+        value:
+          "🧱Wall beats Scissors, Bomb & Fire | 🔫Cannon beats Rock, Paper, Wall & Clay | 🔥Fire beats Paper, Scissors & Bomb | 🏺Clay beats Rock, Wall & Fire",
+        inline: false,
       })
       .setFooter({ text: "The challenge will expire in 60 seconds" });
 
@@ -200,7 +377,7 @@ async function handleSlashCommand(interaction) {
           .editReply({
             embeds: [
               challengeEmbed.setDescription(
-                `${challenger} challenged ${challenged} to Rock Paper Scissors, but the challenge expired.`
+                `${challenger} challenged ${challenged} to Rock Paper Crane, but the challenge expired.`
               ),
             ],
             components: [],
@@ -249,16 +426,30 @@ async function handleButtonInteraction(interaction) {
 
     // Challenge accepted - start the game
     const gameEmbed = new EmbedBuilder()
-      .setTitle("⚔️ Rock Paper Scissors Game Started!")
+      .setTitle("⚔️ Rock Paper Crane Game Started!")
       .setDescription(
-        `${game.challenger} vs ${game.challenged}\n\nBoth players, make your choice! Your choices will be revealed once both players have decided.`
+        `${game.challenger} vs ${game.challenged}\n\n**Round ${game.currentRound}** - Make your choice!`
       )
       .setColor("#4CAF50")
-      .addFields({
-        name: "Players:",
-        value: `${game.challenger} - ⏳ Waiting...\n${game.challenged} - ⏳ Waiting...`,
-        inline: false,
-      });
+      .addFields(
+        {
+          name: "Players:",
+          value: `${game.challenger} - ⏳ Waiting...\n${game.challenged} - ⏳ Waiting...`,
+          inline: false,
+        },
+        {
+          name: "Upgrades Progress:",
+          value: `${game.challenger}: ${game.getUpgradeStatus(
+            game.challenger.id
+          )}\n${game.challenged}: ${game.getUpgradeStatus(game.challenged.id)}`,
+          inline: false,
+        },
+        {
+          name: "Round Wins:",
+          value: `${game.challenger}: ${game.challengerWins} | ${game.challenged}: ${game.challengedWins} | Ties: ${game.ties}`,
+          inline: false,
+        }
+      );
 
     const gameButtons = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -275,7 +466,12 @@ async function handleButtonInteraction(interaction) {
         .setCustomId(`choice_${gameId}_scissors`)
         .setLabel("Scissors")
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji("✂️")
+        .setEmoji("✂️"),
+      new ButtonBuilder()
+        .setCustomId(`choice_${gameId}_bomb`)
+        .setLabel("Bomb")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("💣")
     );
 
     await interaction.update({
@@ -292,6 +488,15 @@ async function handleButtonInteraction(interaction) {
     ) {
       await interaction.reply({
         content: "❌ You are not part of this game!",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // Check if game is in the right phase
+    if (game.gamePhase !== "playing") {
+      await interaction.reply({
+        content: "❌ Game is not in playing phase!",
         ephemeral: true,
       });
       return;
@@ -326,48 +531,67 @@ async function handleButtonInteraction(interaction) {
       : "⏳ Waiting...";
 
     const updatedEmbed = new EmbedBuilder()
-      .setTitle("⚔️ Rock Paper Scissors Game Started!")
+      .setTitle("⚔️ Rock Paper Crane Game Started!")
       .setDescription(
-        `${game.challenger} vs ${game.challenged}\n\nBoth players, make your choice! Your choices will be revealed once both players have decided.`
+        `${game.challenger} vs ${game.challenged}\n\n**Round ${game.currentRound}** - Make your choice!`
       )
       .setColor("#4CAF50")
-      .addFields({
-        name: "Players:",
-        value: `${game.challenger} - ${challengerStatus}\n${game.challenged} - ${challengedStatus}`,
-        inline: false,
-      });
+      .addFields(
+        {
+          name: "Players:",
+          value: `${game.challenger} - ${challengerStatus}\n${game.challenged} - ${challengedStatus}`,
+          inline: false,
+        },
+        {
+          name: "Upgrades Progress:",
+          value: `${game.challenger}: ${game.getUpgradeCount(
+            game.challenger.id
+          )}/4 upgrades\n${game.challenged}: ${game.getUpgradeCount(
+            game.challenged.id
+          )}/4 upgrades`,
+          inline: false,
+        },
+        {
+          name: "Round Wins:",
+          value: `${game.challenger}: ${game.challengerWins} | ${game.challenged}: ${game.challengedWins} | Ties: ${game.ties}`,
+          inline: false,
+        }
+      );
 
     // Check if both players have made their choices
     if (game.bothPlayersReady()) {
-      // Game is complete - show results
-      const winner = game.getWinner();
+      // Process round result
+      const roundResult = game.processRoundResult();
+      const roundWinner = game.getRoundWinner();
+
+      // Get actual choices (basic or upgraded) for display
+      const challengerActual = game.getActualChoice(
+        game.challenger.id,
+        game.challengerChoice
+      );
+      const challengedActual = game.getActualChoice(
+        game.challenged.id,
+        game.challengedChoice
+      );
+
+      const challengerDisplay = game.getChoiceDisplay(challengerActual);
+      const challengedDisplay = game.getChoiceDisplay(challengedActual);
+
+      const resultsText = `${game.challenger} chose ${challengerDisplay.emoji} **${challengerDisplay.name}**\n${game.challenged} chose ${challengedDisplay.emoji} **${challengedDisplay.name}**`;
+
       let resultDescription = "";
       let resultColor = "";
       let resultTitle = "";
 
-      const choiceEmojis = {
-        rock: "🪨",
-        paper: "📄",
-        scissors: "✂️",
-      };
-
-      const resultsText = `${game.challenger} chose ${
-        choiceEmojis[game.challengerChoice]
-      } **${game.challengerChoice}**\n${game.challenged} chose ${
-        choiceEmojis[game.challengedChoice]
-      } **${game.challengedChoice}**`;
-
-      if (winner === "tie") {
-        resultTitle = "🤝 It's a Tie!";
-        resultDescription = `${resultsText}\n\nIt's a draw! Both players chose the same thing.`;
+      if (roundWinner === "tie") {
+        resultTitle = `🤝 Round ${game.currentRound - 1} - It's a Tie!`;
+        resultDescription = `${resultsText}\n\nNo upgrades awarded. Starting next round...`;
         resultColor = "#FFA500";
-      } else if (winner === "challenger") {
-        resultTitle = "🎉 We Have a Winner!";
-        resultDescription = `${resultsText}\n\n**${game.challenger}** wins! 🏆`;
-        resultColor = "#00FF00";
       } else {
-        resultTitle = "🎉 We Have a Winner!";
-        resultDescription = `${resultsText}\n\n**${game.challenged}** wins! 🏆`;
+        const winnerUser =
+          roundWinner === "challenger" ? game.challenger : game.challenged;
+        resultTitle = `🎉 Round ${game.currentRound - 1} Winner!`;
+        resultDescription = `${resultsText}\n\n**${winnerUser}** wins the round! 🏆\n\nSelect an item to upgrade:`;
         resultColor = "#00FF00";
       }
 
@@ -376,22 +600,122 @@ async function handleButtonInteraction(interaction) {
         .setDescription(resultDescription)
         .setColor(resultColor);
 
-      // Create new game button
-      const newGameButton = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`newgame_${game.challenger.id}_${game.challenged.id}`)
-          .setLabel("Play Again")
-          .setStyle(ButtonStyle.Primary)
-          .setEmoji("🔄")
+      // Add current game status
+      resultEmbed.addFields(
+        {
+          name: "Game Status:",
+          value: `Round Wins - ${game.challenger}: ${game.challengerWins} | ${game.challenged}: ${game.challengedWins} | Ties: ${game.ties}`,
+          inline: false,
+        },
+        {
+          name: "Upgrades:",
+          value: `${game.challenger}: ${game.getUpgradeCount(
+            game.challenger.id
+          )}/4 | ${game.challenged}: ${game.getUpgradeCount(
+            game.challenged.id
+          )}/4`,
+          inline: false,
+        }
       );
 
-      await interaction.editReply({
-        embeds: [resultEmbed],
-        components: [newGameButton],
-      });
+      if (roundWinner === "tie") {
+        // Show next round buttons
+        const nextRoundButtons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`choice_${gameId}_rock`)
+            .setLabel("Rock")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("🪨"),
+          new ButtonBuilder()
+            .setCustomId(`choice_${gameId}_paper`)
+            .setLabel("Paper")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("📄"),
+          new ButtonBuilder()
+            .setCustomId(`choice_${gameId}_scissors`)
+            .setLabel("Scissors")
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji("✂️"),
+          new ButtonBuilder()
+            .setCustomId(`choice_${gameId}_bomb`)
+            .setLabel("Bomb")
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji("💣")
+        );
 
-      // Clean up the game
-      activeGames.delete(gameId);
+        resultEmbed.setDescription(
+          resultDescription +
+            `\n\n**Round ${game.currentRound}** - Make your choice!`
+        );
+
+        await interaction.editReply({
+          embeds: [resultEmbed],
+          components: [nextRoundButtons],
+        });
+      } else {
+        // Show upgrade buttons to the winner
+        const winnerId =
+          roundWinner === "challenger"
+            ? game.challenger.id
+            : game.challenged.id;
+        const availableUpgrades = game.getAvailableUpgrades(winnerId);
+
+        if (availableUpgrades.length === 0) {
+          // Winner has all upgrades - game over!
+          const gameWinnerUser =
+            roundWinner === "challenger" ? game.challenger : game.challenged;
+          const finalEmbed = new EmbedBuilder()
+            .setTitle("🎊 GAME COMPLETE! 🎊")
+            .setDescription(
+              `**${gameWinnerUser}** has upgraded all 4 items and wins the entire game!`
+            )
+            .setColor("#FFD700");
+
+          const newGameButton = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(
+                `newgame_${game.challenger.id}_${game.challenged.id}`
+              )
+              .setLabel("Play Again")
+              .setStyle(ButtonStyle.Primary)
+              .setEmoji("🔄")
+          );
+
+          await interaction.editReply({
+            embeds: [finalEmbed],
+            components: [newGameButton],
+          });
+
+          // Clean up the game
+          activeGames.delete(gameId);
+        } else {
+          // Show upgrade options
+          const upgradeButtons = new ActionRowBuilder();
+
+          const upgradeMap = {
+            rock: { to: "wall", emoji: "🧱" },
+            bomb: { to: "cannon", emoji: "🔫" },
+            scissors: { to: "fire", emoji: "🔥" },
+            paper: { to: "clay", emoji: "🏺" },
+          };
+
+          availableUpgrades.forEach((item) => {
+            const upgrade = upgradeMap[item];
+            upgradeButtons.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`upgrade_${gameId}_${item}`)
+                .setLabel(`${item} → ${upgrade.to}`)
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji(upgrade.emoji)
+            );
+          });
+
+          await interaction.editReply({
+            embeds: [resultEmbed],
+            components: [upgradeButtons],
+          });
+        }
+      }
     } else {
       // Update the embed to show current status
       const gameButtons = new ActionRowBuilder().addComponents(
@@ -409,12 +733,146 @@ async function handleButtonInteraction(interaction) {
           .setCustomId(`choice_${gameId}_scissors`)
           .setLabel("Scissors")
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji("✂️")
+          .setEmoji("✂️"),
+        new ButtonBuilder()
+          .setCustomId(`choice_${gameId}_bomb`)
+          .setLabel("Bomb")
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji("💣")
       );
 
       await interaction.editReply({
         embeds: [updatedEmbed],
         components: [gameButtons],
+      });
+    }
+  } else if (action === "upgrade") {
+    const item = interaction.customId.split("_")[2];
+
+    // Check if user is the one who should be upgrading
+    if (interaction.user.id !== game.pendingUpgrader) {
+      await interaction.reply({
+        content: "❌ It's not your turn to upgrade!",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // Check if game is in upgrading phase
+    if (game.gamePhase !== "upgrading") {
+      await interaction.reply({
+        content: "❌ Game is not in upgrade phase!",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // Check if the item can be upgraded
+    const availableUpgrades = game.getAvailableUpgrades(interaction.user.id);
+    if (!availableUpgrades.includes(item)) {
+      await interaction.reply({
+        content: "❌ This item is already upgraded or invalid!",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    // Make the upgrade
+    game.makeUpgrade(interaction.user.id, item);
+
+    const upgradeMap = {
+      rock: { from: "🪨 Rock", to: "🧱 Wall" },
+      bomb: { from: "💣 Bomb", to: "🔫 Cannon" },
+      scissors: { from: "✂️ Scissors", to: "🔥 Fire" },
+      paper: { from: "📄 Paper", to: "🏺 Clay" },
+    };
+
+    const upgrade = upgradeMap[item];
+    await interaction.reply({
+      content: `✅ You upgraded your ${upgrade.from} to ${upgrade.to}!`,
+      ephemeral: true,
+    });
+
+    // Check if game is complete
+    if (game.gamePhase === "completed") {
+      const finalEmbed = new EmbedBuilder()
+        .setTitle("🎊 GAME COMPLETE! 🎊")
+        .setDescription(
+          `**${interaction.user}** has upgraded all 4 items and wins the entire game!`
+        )
+        .setColor("#FFD700")
+        .addFields({
+          name: "Final Stats:",
+          value: `Round Wins - ${game.challenger}: ${game.challengerWins} | ${game.challenged}: ${game.challengedWins} | Ties: ${game.ties}`,
+          inline: false,
+        });
+
+      const newGameButton = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`newgame_${game.challenger.id}_${game.challenged.id}`)
+          .setLabel("Play Again")
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji("🔄")
+      );
+
+      await interaction.editReply({
+        embeds: [finalEmbed],
+        components: [newGameButton],
+      });
+
+      // Clean up the game
+      activeGames.delete(gameId);
+    } else {
+      // Continue to next round
+      const nextRoundEmbed = new EmbedBuilder()
+        .setTitle("⚔️ Next Round!")
+        .setDescription(
+          `${game.challenger} vs ${game.challenged}\n\n**Round ${game.currentRound}** - Make your choice!`
+        )
+        .setColor("#4CAF50")
+        .addFields(
+          {
+            name: "Upgrades Progress:",
+            value: `${game.challenger}: ${game.getUpgradeCount(
+              game.challenger.id
+            )}/4 upgrades\n${game.challenged}: ${game.getUpgradeCount(
+              game.challenged.id
+            )}/4 upgrades`,
+            inline: false,
+          },
+          {
+            name: "Round Wins:",
+            value: `${game.challenger}: ${game.challengerWins} | ${game.challenged}: ${game.challengedWins} | Ties: ${game.ties}`,
+            inline: false,
+          }
+        );
+
+      const nextRoundButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`choice_${gameId}_rock`)
+          .setLabel("Rock")
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji("🪨"),
+        new ButtonBuilder()
+          .setCustomId(`choice_${gameId}_paper`)
+          .setLabel("Paper")
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji("📄"),
+        new ButtonBuilder()
+          .setCustomId(`choice_${gameId}_scissors`)
+          .setLabel("Scissors")
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji("✂️"),
+        new ButtonBuilder()
+          .setCustomId(`choice_${gameId}_bomb`)
+          .setLabel("Bomb")
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji("💣")
+      );
+
+      await interaction.editReply({
+        embeds: [nextRoundEmbed],
+        components: [nextRoundButtons],
       });
     }
   } else if (action === "newgame") {
@@ -440,7 +898,7 @@ async function handleButtonInteraction(interaction) {
         : await client.users.fetch(challengerId);
 
     // Create new game
-    const newGame = new RPSGame(
+    const newGame = new RPCGame(
       challenger,
       challengedUser,
       interaction.channel.id
@@ -448,7 +906,7 @@ async function handleButtonInteraction(interaction) {
     activeGames.set(newGame.gameId, newGame);
 
     const gameEmbed = new EmbedBuilder()
-      .setTitle("⚔️ New Rock Paper Scissors Game!")
+      .setTitle("⚔️ New Rock Paper Crane Game!")
       .setDescription(
         `${challenger} started a new game with ${challengedUser}!\n\nBoth players, make your choice! Your choices will be revealed once both players have decided.`
       )
@@ -474,7 +932,12 @@ async function handleButtonInteraction(interaction) {
         .setCustomId(`choice_${newGame.gameId}_scissors`)
         .setLabel("Scissors")
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji("✂️")
+        .setEmoji("✂️"),
+      new ButtonBuilder()
+        .setCustomId(`choice_${newGame.gameId}_bomb`)
+        .setLabel("Bomb")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("💣")
     );
 
     await interaction.update({

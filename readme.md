@@ -1,6 +1,15 @@
-# Rock Paper Scissors Discord Bot
+# Rock Paper Crane Discord Bot
 
-A Discord bot that allows two users to play rock paper scissors in a text channel with interactive buttons and slash commands.
+A Discord bot that allows two users to play Rock Paper Crane in a text channel with interactive buttons and slash commands.
+
+## Game Rules
+
+Rock Paper Crane is a variant of the classic Rock Paper Scissors with an exciting twist - the addition of the **Bomb**!
+
+- 🪨 **Rock** beats ✂️ **Scissors**
+- 📄 **Paper** beats 🪨 **Rock**
+- ✂️ **Scissors** beats 📄 **Paper** and 💣 **Bomb**
+- 💣 **Bomb** beats 🪨 **Rock** and 📄 **Paper**
 
 ## Features
 
@@ -11,6 +20,7 @@ A Discord bot that allows two users to play rock paper scissors in a text channe
 - ⏱️ **Auto-Expiration**: Challenges automatically expire after 60 seconds
 - 🔄 **Play Again**: Easy rematch functionality
 - ✨ **Rich Embeds**: Beautiful game interface with emojis and status updates
+- 💣 **New Choice**: Bomb adds strategic depth to the classic game
 
 ## Setup Instructions
 
@@ -66,22 +76,15 @@ npm run dev
 
 ## How to Play
 
-1. **Start a Game**: Use `/rps @opponent` to challenge someone
+1. **Start a Game**: Use `/rpc @opponent` to challenge someone
 2. **Accept/Decline**: The challenged player clicks Accept or Decline
-3. **Make Choices**: Both players click Rock 🪨, Paper 📄, or Scissors ✂️
+3. **Make Choices**: Both players choose Rock 🪨, Paper 📄, Scissors ✂️, or Bomb 💣
 4. **See Results**: Once both players choose, the results are revealed
 5. **Play Again**: Click "Play Again" for a rematch
 
-## Game Rules
-
-- 🪨 Rock beats ✂️ Scissors
-- 📄 Paper beats 🪨 Rock
-- ✂️ Scissors beats 📄 Paper
-- Same choices result in a tie
-
 ## Commands
 
-- `/rps @user` - Challenge a user to rock paper scissors
+- `/rpc @user` - Challenge a user to Rock Paper Crane
 
 ## Requirements
 
@@ -95,6 +98,7 @@ npm run dev
 - Built with Discord.js v14
 - Uses slash commands and button interactions
 - Implements game state management
+- Features Rock Paper Crane variant with 4 choices instead of 3
 - Handles error cases and validation
 - Auto-cleanup of expired games
 
