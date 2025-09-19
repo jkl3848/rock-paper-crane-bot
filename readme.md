@@ -24,55 +24,11 @@ Rock Paper Crane is a variant of the classic Rock Paper Scissors with an excitin
 
 ## Setup Instructions
 
-### 1. Create a Discord Application and Bot
-
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
-2. Click "New Application" and give it a name
-3. Go to the "Bot" section and click "Add Bot"
-4. Copy the bot token (you'll need this for the `.env` file)
-5. Under "Privileged Gateway Intents", enable:
-   - Message Content Intent
-6. Go to the "OAuth2" section and copy the "Application ID" (you'll need this for the `.env` file)
-
-### 2. Install Dependencies
-
-```bash
-npm install
-```
-
-### 3. Configure Environment Variables
-
-1. Copy `.env.example` to `.env`:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Edit `.env` and add your Discord bot credentials:
-
-   ```env
-   BOT_TOKEN=your_discord_bot_token_here
-   CLIENT_ID=your_discord_application_id_here
-   ```
-
-### 4. Invite the Bot to Your Server
-
 1. Go to the Discord Developer Portal → OAuth2 → URL Generator
 2. Select scopes: `bot` and `applications.commands`
 3. Select bot permissions: `Send Messages`, `Use Slash Commands`, `Embed Links`, `Read Message History`
 4. Copy the generated URL and use it to invite the bot to your server
-
-### 5. Run the Bot
-
-```bash
-npm start
-```
-
-For development with auto-restart:
-
-```bash
-npm run dev
-```
+5. Give permissions: 2147567616
 
 ## How to Play
 
@@ -92,7 +48,6 @@ npm run dev
 - Cannot challenge bots or yourself
 - Only one active game per player pair at a time
 - Challenges expire after 60 seconds if not accepted
-- Permissions: 2147567616
 
 ## Technical Details
 

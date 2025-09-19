@@ -1,7 +1,7 @@
 {
   "name": "rock-paper-crane-bot",
-  "version": "1.0.0",
-  "description": "A Discord bot for playing rock paper scissors between two users",
+  "version": "0.1.0",
+  "description": "A Discord bot for playing rock paper crane between two users",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
@@ -11,6 +11,7 @@
     "discord",
     "bot",
     "rock-paper-scissors",
+    "rock-paper-crane",
     "game"
   ],
   "author": "",
